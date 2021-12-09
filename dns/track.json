@@ -1,0 +1,245 @@
+{% import "rally.helpers" as rally with context %}
+{
+  "version": 2,
+  "description": "DNS logs enriched with Open Pagerank data",
+  "indices": [
+    {
+      "name": "open-pagerank",
+      "body": "index-enrich-source.json"
+    },
+    {
+      "name": "dns",
+      "body": "index.json"
+    }
+  ],
+  "corpora": [
+        {
+          "name": "dns_synthetic_data",
+          "base-url": "https://github.com/mjmbischoff/es-enrich-testdata/releases/download/v1.0/",
+          "documents": [
+          {
+            "target-index": "open-pagerank",
+            "source-file": "top10milliondomains.json.bz2",
+            "document-count":      10000000,
+            "compressed-bytes":    99987830,
+            "uncompressed-bytes": 665569650
+          },
+          {
+            "target-index": "dns",
+            "source-file": "user_activity.json.bz2",
+            "document-count":       50000000,
+            "compressed-bytes":    689148872,
+            "uncompressed-bytes": 5193846527
+          }
+        ]
+      }
+  ],
+  "schedule": [
+    {
+      "name": "delete-enrich-pipeline",
+      "operation": {
+        "operation-type": "delete-pipeline",
+        "id": "dns-enrich-pipeline",
+        "include-in-reporting": false
+      }
+    },
+    {
+      "name": "delete-dns-enrich-policy",
+      "retry-until-success": true,
+      "operation": {
+        "operation-type": "delete-enrich-policy",
+        "policy-id": "dns-enrich-policy",
+        "include-in-reporting": false
+      }
+    },
+    {
+      "operation": "delete-index"
+    },
+    {
+      "name": "create-open-pagerank-index",
+      "operation": {
+        "operation-type": "create-index",
+        "settings": {},
+        "index": "open-pagerank",
+        "include-in-reporting": false
+      }
+    },
+    {
+      "name": "check-cluster-health-after-pagerank-index-creation",
+      "operation": {
+        "operation-type": "cluster-health",
+        "index": "open-pagerank",
+        "request-params": {
+          "wait_for_status": "{{cluster_health | default('green')}}",
+          "wait_for_no_relocating_shards": "true"
+        },
+        "retry-until-success": true
+      }
+    },
+    {
+      "name": "create-dns-enrich-policy",
+      "operation": {
+        "operation-type": "create-enrich-policy",
+        "policy-id": "dns-enrich-policy",
+        "body": {
+          "match": {
+            "indices": "open-pagerank",
+            "match_field": "domain",
+            "enrich_fields": ["openPageRank"]
+          }
+        },
+        "include-in-reporting": false
+      }
+    },
+    {
+      "name": "index-pagerank",
+      "operation": {
+        "operation-type": "bulk",
+        "ingest-percentage": {{pagerank_ingest_percentage | default(100)}},
+        "bulk-size": {{bulk_size | default(5000)}},
+        "indices": ["open-pagerank"],
+        "include-in-reporting": false
+      },
+      "clients": {{bulk_indexing_clients | default(8)}}
+    },
+    {
+      "name": "refresh-after-pagerank-index",
+      "operation": "refresh"
+    },
+    {
+      "operation": {
+        "name": "force-merge-after-pagerank",
+        "operation-type": "force-merge",
+        "request-timeout": 7200,
+        "index": "open-pagerank",
+        "include-in-reporting": false
+      },
+      "clients": 1
+    },
+    {
+      "name": "refresh-after-pagerank-force-merge",
+      "operation": "refresh"
+    },
+    {
+      "name": "wait-until-pagerank-merges-finish",
+      "operation": {
+        "operation-type": "index-stats",
+        "index": "open-pagerank",
+        "condition": {
+          "path": "_all.total.merges.current",
+          "expected-value": 0
+        },
+        "retry-until-success": true,
+        "include-in-reporting": false
+      }
+    },
+    {
+      "name": "execute-dns-enrich-policy",
+      "operation": {
+        "operation-type": "execute-enrich-policy",
+        "policy-id": "dns-enrich-policy",
+        "include-in-reporting": false
+      }
+    },
+    {
+      "name": "create-enrich-pipeline",
+      "operation": {
+        "retry-until-success": true,
+        "retries": 300,
+        "retry-wait-period": 2,
+        "include-in-reporting": false,
+        "operation-type": "put-pipeline",
+        "id": "dns-enrich-pipeline",
+        "body": {
+          "description": "enriches domain with pagerank",
+          "processors" : [
+            {
+              "rename" : {
+                "field" : "domain",
+                "target_field" : "domain-name"
+              }
+            },
+            {
+              "enrich" : {
+                "description" : "Add the pagerank to domain",
+                "policy_name" : "dns-enrich-policy",
+                "field" : "domain-name",
+                "target_field" : "domain",
+                "max_matches" : "1"
+              }
+            },
+            {
+              "rename" : {
+                "field" : "domain-name",
+                "target_field" : "domain.name"
+              }
+            },
+            {
+              "remove" : {
+                "field" : "domain.domain",
+                "ignore_failure": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "operation": {
+        "operation-type": "create-index",
+        "index": "dns"
+      }
+    },
+    {
+      "name": "check-cluster-health",
+      "operation": {
+        "operation-type": "cluster-health",
+        "index": "dns*",
+        "request-params": {
+          "wait_for_status": "{{cluster_health | default('green')}}",
+          "wait_for_no_relocating_shards": "true"
+        },
+        "retry-until-success": true
+      }
+    },
+    {
+      "name": "ingest",
+      "operation": {
+        "operation-type": "bulk",
+        "bulk-size": {{bulk_size | default(5000)}},
+        "ingest-percentage": {{ingest_percentage | default(100)}},
+        "indices": ["dns"],
+        "pipeline": "dns-enrich-pipeline"
+      },
+      "clients": {{bulk_indexing_clients | default(8)}}
+    },
+    {
+      "name": "refresh-after-index",
+      "operation": "refresh"
+    },
+    {
+      "operation": {
+        "operation-type": "force-merge",
+        "request-timeout": 7200
+      },
+      "clients": 1
+    },
+    {
+      "name": "refresh-after-force-merge",
+      "operation": "refresh"
+    },
+    {
+      "name": "wait-until-merges-finish",
+      "operation": {
+        "operation-type": "index-stats",
+        "index": "_all",
+        "condition": {
+          "path": "_all.total.merges.current",
+          "expected-value": 0
+        },
+        "retry-until-success": true,
+        "include-in-reporting": false
+      }
+    }
+  ]
+}
