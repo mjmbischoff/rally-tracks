@@ -36,6 +36,14 @@
   ],
   "schedule": [
     {
+      "name": "delete-dns-index",
+      "operation": {
+        "operation-type": "delete-index",
+        "index": "dns"
+      }
+    },
+{%- if skip_setup is not defined %}
+    {
       "name": "delete-enrich-pipeline",
       "operation": {
         "operation-type": "delete-pipeline",
@@ -53,7 +61,11 @@
       }
     },
     {
-      "operation": "delete-index"
+      "name": "delete-open-pagerank-index",
+      "operation": {
+        "operation-type": "delete-index",
+        "index": "open-pagerank"
+      }
     },
     {
       "name": "create-open-pagerank-index",
@@ -96,7 +108,7 @@
       "operation": {
         "operation-type": "bulk",
         "ingest-percentage": {{pagerank_ingest_percentage | default(100)}},
-        "bulk-size": {{bulk_size | default(5000)}},
+        "bulk-size": {{pagerank_bulk_size | default(5000)}},
         "indices": ["open-pagerank"],
         "include-in-reporting": false
       },
@@ -141,12 +153,18 @@
         "include-in-reporting": false
       }
     },
+  {%- if skip_sleep is not defined %}
+    {
+      "name": "cool-down-period",
+      "operation": {
+        "operation-type": "sleep",
+        "duration": 30
+      }
+    },
+  {%- endif %}
     {
       "name": "create-enrich-pipeline",
       "operation": {
-        "retry-until-success": true,
-        "retries": 300,
-        "retry-wait-period": 2,
         "include-in-reporting": false,
         "operation-type": "put-pipeline",
         "id": "dns-enrich-pipeline",
@@ -184,6 +202,7 @@
         }
       }
     },
+{%- endif %}
     {
       "operation": {
         "operation-type": "create-index",
