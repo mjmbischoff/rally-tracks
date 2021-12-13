@@ -191,7 +191,7 @@
                 "field" : "domain.name",
                 "ignore_failure": true
               }
-            }
+            },
             {
               "rename" : {
                 "field" : "domain-name",
