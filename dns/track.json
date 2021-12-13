@@ -172,6 +172,12 @@
           "description": "enriches domain with pagerank",
           "processors" : [
             {
+              "remove" : {
+                "field" : "domain.name",
+                "ignore_failure": true
+              }
+            },
+            {
               "rename" : {
                 "field" : "domain",
                 "target_field" : "domain-name"
