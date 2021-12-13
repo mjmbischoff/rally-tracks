@@ -187,6 +187,12 @@
               }
             },
             {
+              "remove" : {
+                "field" : "domain.name",
+                "ignore_failure": true
+              }
+            }
+            {
               "rename" : {
                 "field" : "domain-name",
                 "target_field" : "domain.name"
